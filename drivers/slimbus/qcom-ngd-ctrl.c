@@ -1785,11 +1785,8 @@ static void qcom_slim_ngd_up_worker(struct work_struct *work)
 	ctrl = container_of(work, struct qcom_slim_ngd_ctrl, ngd_up_work);
 
 	/* Make sure qmi service is up before continuing */
-	if (!wait_for_completion_interruptible_timeout(&ctrl->qmi_up,
-		msecs_to_jiffies(SLIM_QMI_TIMEOUT_MS))) {
-		SLIM_INFO(ctrl, "QMI wait timeout\n");
-		return;
-	}
+	wait_for_completion_interruptible_timeout(&ctrl->qmi_up,
+						  msecs_to_jiffies(SLIM_QMI_TIMEOUT_MS));
 
 	mutex_lock(&ctrl->ssr_lock);
 	qcom_slim_ngd_enable(ctrl, true);

@@ -442,7 +442,7 @@ static int udf_get_block(struct inode *inode, sector_t block,
 	 * Block beyond EOF and prealloc extents? Just discard preallocation
 	 * as it is not useful and complicates things.
 	 */
-	if (((loff_t)block) << inode->i_blkbits >= iinfo->i_lenExtents)
+	if (((loff_t)block) << inode->i_blkbits > iinfo->i_lenExtents)
 		udf_discard_prealloc(inode);
 	udf_clear_extent_cache(inode);
 	phys = inode_getblk(inode, block, &err, &new);
@@ -525,10 +525,8 @@ static int udf_do_extend_file(struct inode *inode,
 	}
 
 	if (fake) {
-		err = udf_add_aext(inode, last_pos, &last_ext->extLocation,
-				   last_ext->extLength, 1);
-		if (err < 0)
-			goto out_err;
+		udf_add_aext(inode, last_pos, &last_ext->extLocation,
+			     last_ext->extLength, 1);
 		count++;
 	} else {
 		struct kernel_lb_addr tmploc;
@@ -562,7 +560,7 @@ static int udf_do_extend_file(struct inode *inode,
 		err = udf_add_aext(inode, last_pos, &last_ext->extLocation,
 				   last_ext->extLength, 1);
 		if (err)
-			goto out_err;
+			return err;
 		count++;
 	}
 	if (new_block_bytes) {
@@ -571,7 +569,7 @@ static int udf_do_extend_file(struct inode *inode,
 		err = udf_add_aext(inode, last_pos, &last_ext->extLocation,
 				   last_ext->extLength, 1);
 		if (err)
-			goto out_err;
+			return err;
 		count++;
 	}
 
@@ -585,11 +583,6 @@ out:
 		return -EIO;
 
 	return count;
-out_err:
-	/* Remove extents we've created so far */
-	udf_clear_extent_cache(inode);
-	udf_truncate_extents(inode);
-	return err;
 }
 
 /* Extend the final block of the file to final_block_len bytes */
@@ -804,17 +797,19 @@ static sector_t inode_getblk(struct inode *inode, sector_t block,
 		c = 0;
 		offset = 0;
 		count += ret;
-		/*
-		 * Is there any real extent? - otherwise we overwrite the fake
-		 * one...
-		 */
-		if (count)
-			c = !c;
-		laarr[c].extLength = EXT_NOT_RECORDED_NOT_ALLOCATED |
-			inode->i_sb->s_blocksize;
-		memset(&laarr[c].extLocation, 0x00,
-			sizeof(struct kernel_lb_addr));
-		count++;
+		/* We are not covered by a preallocated extent? */
+		if ((laarr[0].extLength & UDF_EXTENT_FLAG_MASK) !=
+						EXT_NOT_RECORDED_ALLOCATED) {
+			/* Is there any real extent? - otherwise we overwrite
+			 * the fake one... */
+			if (count)
+				c = !c;
+			laarr[c].extLength = EXT_NOT_RECORDED_NOT_ALLOCATED |
+				inode->i_sb->s_blocksize;
+			memset(&laarr[c].extLocation, 0x00,
+				sizeof(struct kernel_lb_addr));
+			count++;
+		}
 		endnum = c + 1;
 		lastblock = 1;
 	} else {
@@ -1091,8 +1086,23 @@ static void udf_merge_extents(struct inode *inode, struct kernel_long_ad *laarr,
 			blocksize - 1) >> blocksize_bits)))) {
 
 			if (((li->extLength & UDF_EXTENT_LENGTH_MASK) +
-			     (lip1->extLength & UDF_EXTENT_LENGTH_MASK) +
-			     blocksize - 1) <= UDF_EXTENT_LENGTH_MASK) {
+				(lip1->extLength & UDF_EXTENT_LENGTH_MASK) +
+				blocksize - 1) & ~UDF_EXTENT_LENGTH_MASK) {
+				lip1->extLength = (lip1->extLength -
+						  (li->extLength &
+						   UDF_EXTENT_LENGTH_MASK) +
+						   UDF_EXTENT_LENGTH_MASK) &
+							~(blocksize - 1);
+				li->extLength = (li->extLength &
+						 UDF_EXTENT_FLAG_MASK) +
+						(UDF_EXTENT_LENGTH_MASK + 1) -
+						blocksize;
+				lip1->extLocation.logicalBlockNum =
+					li->extLocation.logicalBlockNum +
+					((li->extLength &
+						UDF_EXTENT_LENGTH_MASK) >>
+						blocksize_bits);
+			} else {
 				li->extLength = lip1->extLength +
 					(((li->extLength &
 						UDF_EXTENT_LENGTH_MASK) +
@@ -1383,7 +1393,6 @@ reread:
 		ret = -EIO;
 		goto out;
 	}
-	iinfo->i_hidden = hidden_inode;
 	iinfo->i_unique = 0;
 	iinfo->i_lenEAttr = 0;
 	iinfo->i_lenExtents = 0;
@@ -1719,12 +1728,8 @@ static int udf_update_inode(struct inode *inode, int do_sync)
 
 	if (S_ISDIR(inode->i_mode) && inode->i_nlink > 0)
 		fe->fileLinkCount = cpu_to_le16(inode->i_nlink - 1);
-	else {
-		if (iinfo->i_hidden)
-			fe->fileLinkCount = cpu_to_le16(0);
-		else
-			fe->fileLinkCount = cpu_to_le16(inode->i_nlink);
-	}
+	else
+		fe->fileLinkCount = cpu_to_le16(inode->i_nlink);
 
 	fe->informationLength = cpu_to_le64(inode->i_size);
 
@@ -1895,13 +1900,8 @@ struct inode *__udf_iget(struct super_block *sb, struct kernel_lb_addr *ino,
 	if (!inode)
 		return ERR_PTR(-ENOMEM);
 
-	if (!(inode->i_state & I_NEW)) {
-		if (UDF_I(inode)->i_hidden != hidden_inode) {
-			iput(inode);
-			return ERR_PTR(-EFSCORRUPTED);
-		}
+	if (!(inode->i_state & I_NEW))
 		return inode;
-	}
 
 	memcpy(&UDF_I(inode)->i_location, ino, sizeof(struct kernel_lb_addr));
 	err = udf_read_inode(inode, hidden_inode);
