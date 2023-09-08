@@ -66,6 +66,9 @@ modules.order
 /Module.markers
 /modules.builtin.modinfo
 /modules.nsdeps
+build_mondrian
+cp_modules
+error.log
 
 #
 # RPM spec file (make rpm-pkg)
