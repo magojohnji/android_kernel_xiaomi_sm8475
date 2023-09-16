@@ -763,6 +763,9 @@ sock_llcp_release:
 	nfc_llcp_local_put(llcp_sock->local);
 	llcp_sock->local = NULL;
 
+sock_llcp_put_local:
+	nfc_llcp_local_put(local);
+
 put_dev:
 	nfc_put_device(dev);
 
