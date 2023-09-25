@@ -734,12 +734,15 @@ static int aw882xx_dynamic_create_controls(struct aw882xx *aw882xx)
 				sizeof(struct snd_kcontrol_new) * AW_KCTL_NUM, GFP_KERNEL);
 	if (aw882xx_dev_control == NULL) {
 		aw_dev_err(aw882xx->codec->dev, "kcontrol malloc failed!");
+		aw882xx->widget_pos = 7;
 		return -ENOMEM;
 	}
 
 	kctl_name = devm_kzalloc(aw882xx->codec->dev, AW_NAME_BUF_MAX, GFP_KERNEL);
-	if (!kctl_name)
+	if (!kctl_name) {
+		aw882xx->widget_pos = 8;
 		return -ENOMEM;
+	}
 
 	snprintf(kctl_name, AW_NAME_BUF_MAX, "aw_dev_%d_prof", aw882xx->aw_pa->channel);
 
@@ -750,8 +753,10 @@ static int aw882xx_dynamic_create_controls(struct aw882xx *aw882xx)
 	aw882xx_dev_control[KCTL_TYPE_PROFILE].put = aw882xx_profile_set;
 
 	kctl_name = devm_kzalloc(aw882xx->codec->dev, AW_NAME_BUF_MAX, GFP_KERNEL);
-	if (!kctl_name)
+	if (!kctl_name) {
+		aw882xx->widget_pos = 9;
 		return -ENOMEM;
+	}
 
 	snprintf(kctl_name, AW_NAME_BUF_MAX, "aw_dev_%d_switch", aw882xx->aw_pa->channel);
 
@@ -762,8 +767,10 @@ static int aw882xx_dynamic_create_controls(struct aw882xx *aw882xx)
 	aw882xx_dev_control[KCTL_TYPE_SWITCH].put = aw882xx_switch_set;
 
 	kctl_name = devm_kzalloc(aw882xx->codec->dev, AW_NAME_BUF_MAX, GFP_KERNEL);
-	if (!kctl_name)
+	if (!kctl_name) {
+		aw882xx->widget_pos = 10;
 		return -ENOMEM;
+	}
 
 	snprintf(kctl_name, AW_NAME_BUF_MAX, "aw_dev_%d_monitor", aw882xx->aw_pa->channel);
 
@@ -775,8 +782,10 @@ static int aw882xx_dynamic_create_controls(struct aw882xx *aw882xx)
 
 
 	kctl_name = devm_kzalloc(aw882xx->codec->dev, AW_NAME_BUF_MAX, GFP_KERNEL);
-	if (!kctl_name)
+	if (!kctl_name) {
+		aw882xx->widget_pos = 11;
 		return -ENOMEM;
+	}
 
 	snprintf(kctl_name, AW_NAME_BUF_MAX, "aw_dev_%d_volume", aw882xx->aw_pa->channel);
 
@@ -789,6 +798,7 @@ static int aw882xx_dynamic_create_controls(struct aw882xx *aw882xx)
 	aw_componet_codec_ops.add_codec_controls(aw882xx->codec,
 						aw882xx_dev_control, AW_KCTL_NUM);
 
+	aw882xx->widget_pos = 12;
 	return 0;
 }
 
@@ -814,6 +824,7 @@ static void aw882xx_request_firmware(struct work_struct *work)
 						ACF_BIN_NAME, aw882xx->fw_retry_cnt);
 			aw882xx_request_firmware(work);
 		}
+		aw882xx->widget_pos = 3;
 		return;
 	}
 
@@ -827,6 +838,7 @@ static void aw882xx_request_firmware(struct work_struct *work)
 			release_firmware(cont);
 			aw_dev_err(aw882xx->dev, "malloc failed");
 			mutex_unlock(&g_aw882xx_lock);
+			aw882xx->widget_pos = 4;
 			return;
 		}
 		aw_cfg->len = cont->size;
@@ -838,6 +850,7 @@ static void aw882xx_request_firmware(struct work_struct *work)
 			vfree(aw_cfg);
 			aw_cfg = NULL;
 			mutex_unlock(&g_aw882xx_lock);
+			aw882xx->widget_pos = 5;
 			return;
 		}
 		g_awinic_cfg = aw_cfg;
@@ -854,6 +867,7 @@ static void aw882xx_request_firmware(struct work_struct *work)
 	if (ret < 0) {
 		aw_dev_info(aw882xx->dev, "dev init failed");
 		mutex_unlock(&aw882xx->lock);
+		aw882xx->widget_pos = 6;
 		return;
 	}
 
@@ -1552,6 +1566,7 @@ static int aw882xx_codec_probe(aw_snd_soc_codec_t *aw_codec)
 	aw882xx->work_queue = create_singlethread_workqueue("aw882xx");
 	if (!aw882xx->work_queue) {
 		aw_dev_err(aw882xx->dev, "create workqueue failed !");
+		aw882xx->widget_pos = 2;
 		return -EINVAL;
 	}
 
@@ -1699,6 +1714,7 @@ int aw_componet_codec_register(struct aw882xx *aw882xx)
 	dai_drv = devm_kzalloc(aw882xx->dev, sizeof(aw882xx_dai), GFP_KERNEL);
 	if (dai_drv == NULL) {
 		aw_dev_err(aw882xx->dev, "dai_driver malloc failed");
+		aw882xx->widget_pos = 1;
 		return -ENOMEM;
 	}
 
@@ -2515,6 +2531,18 @@ static ssize_t aw882xx_dsm_sleep_duration_show(struct device *dev,
 	return len;
 }
 
+static ssize_t aw882xx_widget_pos_show(struct device *dev,
+	struct device_attribute *attr, char *buf)
+{
+	struct aw882xx *aw882xx = dev_get_drvdata(dev);
+	ssize_t len = 0;
+
+	len += snprintf(buf + len, PAGE_SIZE - len,
+	" widget pos: %d \n", aw882xx->widget_pos);
+
+	return len;
+}
+
 static DEVICE_ATTR(reg, S_IWUSR | S_IRUGO,
 	aw882xx_reg_show, aw882xx_reg_store);
 static DEVICE_ATTR(rw, S_IWUSR | S_IRUGO,
@@ -2541,6 +2569,8 @@ static DEVICE_ATTR(dsm_sleep_duration, S_IWUSR | S_IRUGO,
 	aw882xx_dsm_sleep_duration_show, aw882xx_dsm_sleep_duration_store);
 static DEVICE_ATTR(dsm_state, S_IRUGO,
 	aw882xx_dsm_state_show, NULL);
+static DEVICE_ATTR(widget_pos, S_IRUGO,
+	aw882xx_widget_pos_show, NULL);
 
 
 static struct attribute *aw882xx_attributes[] = {
@@ -2557,6 +2587,7 @@ static struct attribute *aw882xx_attributes[] = {
 	&dev_attr_dsm_test.attr,
 	&dev_attr_dsm_sleep_duration.attr,
 	&dev_attr_dsm_state.attr,
+	&dev_attr_widget_pos.attr,
 	NULL
 };
 
@@ -2614,6 +2645,7 @@ static int aw882xx_i2c_probe(struct i2c_client *i2c,
 		return ret;
 
 	aw882xx->dsm_state = -1;
+	aw882xx->widget_pos = -1;
 
 	/*aw882xx irq*/
 	aw882xx_interrupt_init(aw882xx);
