@@ -71,7 +71,7 @@ cp_modules
 error.log
 modulos_correctos
 arch/arm64/configs/vendor/mondrian_defconfig_backup
-
+banner
 #
 # RPM spec file (make rpm-pkg)
 #
