@@ -2291,14 +2291,6 @@ static void cpuset_cancel_attach(struct cgroup_taskset *tset)
 	cs->attach_in_progress--;
 	if (!cs->attach_in_progress)
 		wake_up(&cpuset_attach_wq);
-
-	if (cs->nr_migrate_dl_tasks) {
-		int cpu = cpumask_any(cs->effective_cpus);
-
-		dl_bw_free(cpu, cs->sum_migrate_dl_bw);
-		reset_migrate_dl_data(cs);
-	}
-
 	mutex_unlock(&cpuset_mutex);
 }
 
